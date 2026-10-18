@@ -38,7 +38,7 @@ local L = require("BonusBuff_Locale")
 ------------------------------------------
 
 local TEAM_NEUTRAL = 2                      -- GetPlayersInWorld(TEAM_NEUTRAL) = both factions
-local PLAYER_EVENT_ON_COMMAND = 42          -- (event, player, command) - player is nil if command used from console
+local PLAYER_EVENT_ON_COMMAND = 42          -- (event, player, command, chatHandler) - player is nil if command used from console
 local PLAYER_EVENT_ON_RESURRECT = 36        -- (event, player)
 local PLAYER_EVENT_ON_LOGIN = 3             -- (event, player)
 local PLAYER_EVENT_ON_LOGOUT = 4            -- (event, player)
@@ -68,14 +68,24 @@ local function bb_t(player, key, ...)
     return str
 end
 
--- Replies to the GM in game, or prints to the console when used from there.
-local function bb_reply(player, key, ...)
-    local text = bb_t(player, key, ...)
-    if player then
+-- ChatHandler of the command currently being handled. Replies go through it so they reach
+-- whoever sent the command: a GM in game, the worldserver console, or SOAP (Discord bots, other modules).
+local bb_handler = nil
+
+-- Sends one line of command feedback.
+local function bb_say(player, text)
+    if bb_handler then
+        bb_handler:SendSysMessage(text)
+    elseif player then
         player:SendBroadcastMessage(text)
     else
         print(text)
     end
+end
+
+-- Replies to whoever sent the command (in game, console or SOAP).
+local function bb_reply(player, key, ...)
+    bb_say(player, bb_t(player, key, ...))
 end
 
 -- Build the group index from the config: groups[lowercase name] = { name, worldBuff, comment, spells = {...} }
@@ -332,7 +342,7 @@ end
 local function bb_list(player, showAliases)
     local locale = player and player:GetDbcLocale() or 0
     local function line(text)
-        if player then player:SendBroadcastMessage(text) else print(text) end
+        bb_say(player, text)
     end
 
     bb_reply(player, "LIST_HEADER")
@@ -555,7 +565,7 @@ local function bb_onLogin(event, player)
     end
 end
 
-local function bb_onCommand(event, player, command)
+local function bb_onCommand(event, player, command, chatHandler)
     local args = {}
     for word in string.gmatch(command, "%S+") do
         table.insert(args, string.lower(word))
@@ -568,6 +578,8 @@ local function bb_onCommand(event, player, command)
     if player and player:GetGMRank() < Config.MinGMRank then
         return   -- let the core answer with its normal "no such command"
     end
+
+    bb_handler = chatHandler
 
     if args[2] == nil then
         bb_reply(player, "USAGE")
@@ -590,6 +602,7 @@ local function bb_onCommand(event, player, command)
         end
     end
 
+    bb_handler = nil
     return false
 end
 
